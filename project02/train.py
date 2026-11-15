@@ -161,11 +161,11 @@ def optimize_joint_thresholds(model3, model4, val_rows):
 
         call3_mat = force_call3[None, :] | ((~force_fold3)[None, :] & (ev3[None, :] >= t3_grid[:, None]))
 
-        # float64 행렬 곱셈으로 수치 정밀도 확보 및 BLAS 경고 방지
+        # 임계값 조합별 평균 손익을 float64 정밀도로 계산
         scores_mat = -1.0 + (call3_mat.astype(np.float64) @ (reward4_mat.astype(np.float64) + 1.0).T) / len(y_val)
         max_val = np.max(scores_mat)
 
-        # 최고 검증 수익 동점 구간 중 손절 비용(-1.0, -2.0)에 가장 가까운 기준값 선택
+        # 최고 검증 수익과 유사한 후보 중 손절 비용(-1.0, -2.0)에 가장 가까운 기준값 선택
         cand_indices = np.argwhere(np.isclose(scores_mat, max_val, atol=1e-4))
         best_i, best_j = 0, 0
         best_dist = 1e9
@@ -275,7 +275,7 @@ def main():
 
     print(
         f"Done in {time.time() - t_start:.2f}s! "
-        f"(Trees used: model3={model3.n_iter_}, model4={model4.n_iter_}) "
+        f"(Iterations: model3={model3.n_iter_}, model4={model4.n_iter_}) "
         f"Saved 'poker-model3.sav' and 'poker-model4.sav'."
     )
 
