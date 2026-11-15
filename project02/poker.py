@@ -1,4 +1,3 @@
-from pydoc import cli
 import pygame, sys
 pygame.init()
 
@@ -10,7 +9,6 @@ import pickle
 import warnings
 import numpy as np
 import pandas as pd
-from itertools import combinations
 from sklearn.ensemble import HistGradientBoostingClassifier
 
 warnings.filterwarnings('ignore')
@@ -120,7 +118,7 @@ def _build_fallback_models_if_needed(path3, path4):
     X3_list, y3_list = [], []
     X4_list, y4_list = [], []
 
-    # 앞쪽 희귀 족보 과적합 방지를 위해 일부 조합 증강과 원본 데이터를 균형 있게 추출
+    # 각 5장 카드 데이터에서 앞의 3장과 4장을 추출하여 학습 데이터 생성
     for row in raw:
         cards = [(int(row[2 * i]), int(row[2 * i + 1])) for i in range(5)]
         label = int(row[10])
@@ -193,7 +191,7 @@ def predict_call(hand, opposite_score):
     if current_score >= oppo:
         return True
 
-    # [전략 3] 수학적 불가능 패(Dead Hand) 즉시 손절(FOLD) 필터링
+    # [전략 3] 족보 달성 가능성과 기대 수익(EV)을 고려한 조기 FOLD 판단
     if k == 4:
         # 4장일 때 노페어이고 플러시/스트레이트 가능성도 없으면 최대 도달 점수는 1점(확률 25%, EV=-2.25 < -2.0)
         if current_score == 0 and is_all_same_suit == 0 and straight_windows == 0:
@@ -365,10 +363,6 @@ def opposite_hand_text():
 BUTTON_WIDTH, BUTTON_HEIGHT = 120, 50
 
 def draw_button(center_pos, button_text, button_color):
-    # rect button
-    #rect = pygame.Rect(
-    #    (center_pos[0] - BUTTON_WIDTH/2, center_pos[1] - BUTTON_HEIGHT/2),
-    #    (BUTTON_WIDTH, BUTTON_HEIGHT) )
     rect = pygame.Rect((0, 0, BUTTON_WIDTH, BUTTON_HEIGHT))
     rect.center = center_pos
     pygame.draw.rect(screen, button_color, rect) 
