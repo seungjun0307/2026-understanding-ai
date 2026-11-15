@@ -4,14 +4,8 @@ pygame.init()
 # NOTE: The following implementation is a sample and will not run without 
 # the necessary model files (e.g., SAV files).
 ## ---------------- FILL HERE ---------------------------------
-import os
 import pickle
-import warnings
 import numpy as np
-import pandas as pd
-from sklearn.ensemble import HistGradientBoostingClassifier
-
-warnings.filterwarnings('ignore')
 
 # 10개의 가능한 스트레이트 숫자 집합 사전 정의 (Ace=1 로우 및 Ace=14 하이 모두 포함)
 _STRAIGHT_WINDOWS = [set(range(s, s + 5)) for s in range(1, 10)] + [{1, 10, 11, 12, 13}]
@@ -38,7 +32,7 @@ def extract_features_from_hand(hand):
     num_unique_ranks = len(freq_sorted)
     num_pairs = sum(1 for c in freq_sorted if c >= 2)
 
-    # 현재 카드만으로 이미 확정된 최소 족보 점수 (단조 증가 정리 활용)
+    # 현재 카드만으로 이미 확정된 최소 족보 점수
     if max_freq == 4:
         current_score = 7
     elif max_freq == 3:
@@ -58,7 +52,7 @@ def extract_features_from_hand(hand):
     # 5장 플러시가 되려면 현재 공개된 3장(또는 4장)의 문양이 모두 같아야만 가능함
     is_all_same_suit = 1 if max_suit == k else 0
 
-    # 3. 스트레이트(Straight) 간격 및 아우츠(Outs) 윈도우 개수 계산
+    # 3. 스트레이트(Straight) 간격 및 가능 구간(Window) 개수 계산
     span_low = ranks[-1] - ranks[0]
     ranks_high = sorted([14 if r == 1 else r for r in ranks])
     span_high = ranks_high[-1] - ranks_high[0]
@@ -92,77 +86,15 @@ def extract_features_from_hand(hand):
     ]
 
 
-def _resolve_path(filename):
-    """현재 작업 디렉토리 또는 스크립트 위치에서 파일 경로를 안전하게 탐색합니다."""
-    if os.path.exists(filename):
-        return filename
-    try:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        candidate = os.path.join(base_dir, filename)
-        if os.path.exists(candidate):
-            return candidate
-    except NameError:
-        pass
-    return filename
+# 학습된 3장/4장 전용 분류 모델 로드
+with open('poker-model3.sav', 'rb') as _f3:
+    model3 = pickle.load(_f3)
 
+with open('poker-model4.sav', 'rb') as _f4:
+    model4 = pickle.load(_f4)
 
-def _build_fallback_models_if_needed(path3, path4):
-    """만약 .sav 파일이 아직 생성되지 않은 상태에서 실행될 경우 자동으로 학습 및 저장합니다."""
-    train_csv = _resolve_path('poker-hand-training.csv')
-    if not os.path.exists(train_csv):
-        return None, None
-
-    df = pd.read_csv(train_csv)
-    raw = df.to_numpy()
-
-    X3_list, y3_list = [], []
-    X4_list, y4_list = [], []
-
-    # 각 5장 카드 데이터에서 앞의 3장과 4장을 추출하여 학습 데이터 생성
-    for row in raw:
-        cards = [(int(row[2 * i]), int(row[2 * i + 1])) for i in range(5)]
-        label = int(row[10])
-        X3_list.append(extract_features_from_hand(cards[:3]))
-        y3_list.append(label)
-        X4_list.append(extract_features_from_hand(cards[:4]))
-        y4_list.append(label)
-
-    X3 = np.asarray(X3_list, dtype=np.float32)
-    y3 = np.asarray(y3_list, dtype=np.int64)
-    X4 = np.asarray(X4_list, dtype=np.float32)
-    y4 = np.asarray(y4_list, dtype=np.int64)
-
-    m3 = HistGradientBoostingClassifier(max_iter=150, learning_rate=0.08, max_depth=6, random_state=42)
-    m3.fit(X3, y3)
-    with open(path3, 'wb') as f:
-        pickle.dump(m3, f)
-
-    m4 = HistGradientBoostingClassifier(max_iter=150, learning_rate=0.08, max_depth=6, random_state=42)
-    m4.fit(X4, y4)
-    with open(path4, 'wb') as f:
-        pickle.dump(m4, f)
-
-    return m3, m4
-
-
-# load the model from disk
-filename3 = _resolve_path('poker-model3.sav')
-filename4 = _resolve_path('poker-model4.sav')
-
-if os.path.exists(filename3) and os.path.exists(filename4):
-    with open(filename3, 'rb') as _f3:
-        model3 = pickle.load(_f3)
-    with open(filename4, 'rb') as _f4:
-        model4 = pickle.load(_f4)
-else:
-    model3, model4 = _build_fallback_models_if_needed(filename3, filename4)
-
-# 반복 호출 속도를 극대화하기 위한 메모이제이션 캐시
+# 동일 입력 상태의 예측 결과를 재사용하기 위한 메모이제이션 캐시
 _DECISION_CACHE = {}
-
-# 기본 최적 현금 기댓값(EV) 커트라인 (train.py에서 튜닝된 속성이 있으면 우선 적용됨)
-_DEFAULT_TH3 = {1: -1.02, 2: -1.05, 3: -1.05, 4: -1.02, 5: -1.02, 6: -1.00, 7: -1.00, 8: -1.00, 9: -1.00}
-_DEFAULT_TH4 = {1: -1.98, 2: -1.98, 3: -1.98, 4: -1.98, 5: -1.98, 6: -1.98, 7: -1.98, 8: -1.98, 9: -1.98}
 
 
 # given parameters:
@@ -175,45 +107,45 @@ _DEFAULT_TH4 = {1: -1.98, 2: -1.98, 3: -1.98, 4: -1.98, 5: -1.98, 6: -1.98, 7: -
 def predict_call(hand, opposite_score):
     oppo = int(opposite_score)
 
-    # [전략 1] 상대 점수가 0점(Nothing)이면 패배 확률이 0%이므로 무조건 CALL
+    # [전략 1] 상대 점수가 0점(Nothing)이면 패배 가능성이 없으므로 무조건 CALL
     if oppo <= 0:
         return True
 
     feats = extract_features_from_hand(hand)
     k = len(hand)
 
-    # feats 내 주요 도메인 변수 언패킹 (뒤에서부터 고정 인덱스)
+    # 정렬된 카드 숫자(k개) 뒤에 위치한 주요 도메인 피처 추출
     current_score = feats[k + 4]
     is_all_same_suit = feats[k + 6]
     straight_windows = feats[k + 10]
 
-    # [전략 2] 포커 족보 단조 증가 정리: 현재 확정 점수가 상대 점수 이상이면 패배 확률 0%이므로 무조건 CALL
+    # [전략 2] 현재 확보한 최소 족보 점수가 상대 점수 이상이면 패배하지 않으므로 즉시 CALL
     if current_score >= oppo:
         return True
 
     # [전략 3] 족보 달성 가능성과 기대 수익(EV)을 고려한 조기 FOLD 판단
     if k == 4:
-        # 4장일 때 노페어이고 플러시/스트레이트 가능성도 없으면 최대 도달 점수는 1점(확률 25%, EV=-2.25 < -2.0)
+        # 4장 노페어 + 무늬 불일치 + 스트레이트 불가 시 최대 1점(상대 1점 기준 EV=-2.25 < -2.0)
         if current_score == 0 and is_all_same_suit == 0 and straight_windows == 0:
             return False
-        # 4장일 때 원페어(1점)면 마지막 1장으로 도달 가능한 최대 점수는 3점(트리플)
+        # 4장 원페어(1점)면 마지막 1장으로 도달 가능한 최대 점수는 3점(트리플)
         if current_score == 1 and oppo >= 4:
             return False
-        # 4장일 때 투페어(2점)면 마지막 1장으로 도달 가능한 최대 점수는 6점(풀하우스, 확률 4/48 -> EV=-2.50 < -2.0)
+        # 4장 투페어(2점)면 마지막 1장으로 최대 6점(풀하우스, 확률 4/48 -> 상대 3~5점 기준 EV=-2.50 < -2.0)
         if current_score == 2 and oppo >= 3:
             return False
-        # 4장일 때 트리플(3점)이면 도달 가능한 최대 점수는 7점(포카드)
+        # 4장 트리플(3점)이면 마지막 1장으로 도달 가능한 최대 점수는 7점(포카드)
         if current_score == 3 and oppo >= 8:
             return False
     elif k == 3:
-        # 3장일 때 노페어 + 무늬 다름 + 스트레이트 불가 패는 상대가 1점 이상일 때 2단계 기댓값이 -1.51 이하이므로 즉시 FOLD
+        # 3장 노페어 + 무늬 불일치 + 스트레이트 불가 패는 상대가 1점 이상일 때 기대 수익이 손절(-1.0)보다 낮으므로 즉시 FOLD
         if current_score == 0 and is_all_same_suit == 0 and straight_windows == 0:
             return False
-        # 3장일 때 원페어(1점)면 무늬가 이미 2개 이상 섞여 있어 최대 도달 가능 점수는 7점(포카드)
+        # 3장 원페어(1점)면 무늬가 이미 2개 이상 섞여 있어 최대 도달 가능 점수는 7점(포카드)
         if current_score == 1 and oppo >= 8:
             return False
 
-    # [전략 4] 동일 상태 공간 캐시 조회 (20,000회 호출 시 0.2초 내 처리)
+    # [전략 4] 동일 상태 공간 캐시 조회
     cache_key = (k, tuple(feats), oppo)
     if cache_key in _DECISION_CACHE:
         return _DECISION_CACHE[cache_key]
@@ -222,19 +154,13 @@ def predict_call(hand, opposite_score):
     X_input = np.asarray([feats], dtype=np.float32)
 
     if k == 3:
-        if model3 is None:
-            return False
         probs = model3.predict_proba(X_input)[0]
         classes = model3.classes_
-        th_map = getattr(model3, 'best_thresholds_', _DEFAULT_TH3)
-        threshold = th_map.get(oppo, -1.02)
+        threshold = model3.best_thresholds_.get(oppo, -1.0)
     else:
-        if model4 is None:
-            return False
         probs = model4.predict_proba(X_input)[0]
         classes = model4.classes_
-        th_map = getattr(model4, 'best_thresholds_', _DEFAULT_TH4)
-        threshold = th_map.get(oppo, -1.98)
+        threshold = model4.best_thresholds_.get(oppo, -2.0)
 
     p_win = 0.0
     p_lose = 0.0
